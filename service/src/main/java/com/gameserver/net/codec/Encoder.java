@@ -16,6 +16,11 @@ public abstract class Encoder extends OneToOneEncoder {
 	@Override
 	protected Object encode(ChannelHandlerContext ctx, Channel channel,
 			Object msg) throws Exception {
+
+		if (!(msg instanceof Message)){
+			return msg;
+		}
+
 		Message message = (Message) msg;
 		Object buffer = transformData(message.getData());
 		message.setData(buffer);
