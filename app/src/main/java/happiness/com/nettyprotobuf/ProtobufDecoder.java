@@ -11,8 +11,12 @@ import io.netty.channel.EventLoop;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import java.io.IOException;
 import java.nio.ByteOrder;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * 接收到服务器发送的消息，解析数据时先判断数据是什么类型，然后再解析：数据包格式为
@@ -40,6 +44,12 @@ public class ProtobufDecoder extends ByteToMessageDecoder {
    * </pre>
    */
   public final int BASE_LENGTH = 4 + 4;
+
+  Map<Integer,Consumer<byte[]>> callback = new HashMap<>();
+
+  public void addCallback(int type,Consumer<byte[]> func){
+    callback.put(type,func);
+  }
 
   @Override protected void decode(ChannelHandlerContext channelHandlerContext, ByteBuf buffer,
       List<Object> list) throws Exception {
@@ -84,7 +94,10 @@ public class ProtobufDecoder extends ByteToMessageDecoder {
           byte[] data = new byte[dataLenght];
           buffer.readBytes(data);
           //decodeProtobuf(type, data);
-          decodeGetUserRoomAnswer(data);
+
+          if (callback.containsKey(type)){
+            callback.get(type).accept(data);
+          }
         }
       } catch (Exception e) {
         Log.e(TAG, "decode: ", e);
@@ -92,27 +105,20 @@ public class ProtobufDecoder extends ByteToMessageDecoder {
     }
   }
 
-  private void decodeGetUserRoomAnswer(byte[] data) {
-    Log.d(TAG, "获取到GetUserRoomAnswer --------》");
-    //查询用户是否在房间中返回
-    try {
-      CustomerProtocol.FrameGetUserRoomResp resp =
-          CustomerProtocol.FrameGetUserRoomResp.parseFrom(data);
-
-      Log.d(TAG, "decodeGetUserRoomAnswer: " + resp.toString());
-    } catch (InvalidProtocolBufferException e) {
-      e.printStackTrace();
-    }
+  @Override public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    super.channelInactive(ctx);
+    Log.d(TAG, "channelInactive: reconnect ----->");
+    Client.getInstance().connect();
   }
 
-  @Override public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-    final EventLoop eventLoop = ctx.channel().eventLoop();
-    Log.d(TAG, "channelInactive: reconnect ----->");
-    eventLoop.schedule(new Runnable() {
-      @Override public void run() {
-        Client.getInstance().createBootstrap(new Bootstrap(), eventLoop);
-      }
-    }, 1L, TimeUnit.SECONDS);
-    super.channelInactive(ctx);
+  @Override public void channelActive(ChannelHandlerContext ctx) throws Exception {
+    super.channelActive(ctx);
+    Log.d(TAG, "channelActive: ------------------->");
+  }
+
+  @Override public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause)
+      throws Exception {
+    //super.exceptionCaught(ctx, cause);
+    Client.getInstance().disconnect();
   }
 }

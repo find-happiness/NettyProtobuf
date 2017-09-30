@@ -4,6 +4,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import com.yudong.fitnew.data.model.protobuf.CustomerProtocol;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
@@ -32,7 +33,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         Client.getInstance().disconnect();
         break;
       case R.id.send:
-        Client.getInstance().send();
+        CustomerProtocol.FrameGetUserRoomReq.Builder builder =
+            CustomerProtocol.FrameGetUserRoomReq.newBuilder();
+        builder.setUserID(66796);
+        builder.setAppSocketID(0);
+        //builder.setAppSocketID(0);
+        Client.getInstance()
+            .send(CustomerProtocol.Indexmessage.C2S_UNMASS_DATA_VALUE,
+                CustomerProtocol.Indexmessage.C2S_GETUSERROOMREQ_VALUE, builder.build());
         break;
     }
   }

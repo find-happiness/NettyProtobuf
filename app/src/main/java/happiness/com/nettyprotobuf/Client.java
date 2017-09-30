@@ -1,6 +1,8 @@
 package happiness.com.nettyprotobuf;
 
 import android.util.Log;
+import com.google.protobuf.GeneratedMessage;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.yudong.fitnew.data.model.protobuf.CustomerProtocol;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -17,12 +19,17 @@ import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.util.concurrent.GenericFutureListener;
 import java.nio.ByteOrder;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class Client {
   private static final String TAG = "Client";
-  private final static int READER_IDLE_TIME_SECONDS = 20;//读操作空闲20秒
-  private final static int WRITER_IDLE_TIME_SECONDS = 20;//写操作空闲20秒
-  private final static int ALL_IDLE_TIME_SECONDS = 40;//读写全部空闲40秒
+  public final AtomicInteger writeLimit     = new AtomicInteger(8192);
+  public final AtomicLong reconnectDelay = new AtomicLong(5000);
+  public final AtomicInteger connectTimeout = new AtomicInteger(5000);
+  public final AtomicInteger writeTimeout   = new AtomicInteger(5000);
+  public final AtomicInteger writeBufferHigh = new AtomicInteger(1024 * 64);
+  public final AtomicInteger writeBufferLow  = new AtomicInteger(1024 * 8);
 
   private static final int MAX_FRAME_LENGTH = 1024 * 1024;
   private static final int LENGTH_FIELD_LENGTH = 2;
@@ -36,8 +43,6 @@ public class Client {
   static Client client = new Client();
 
   Channel channel;
-
-  Bootstrap bootstrap;
 
   private Client() {
 
@@ -59,30 +64,25 @@ public class Client {
 
     if (channel != null && channel.isActive()) {
       channel.eventLoop().shutdownGracefully();
+      channel.close();
     }
   }
 
-  public void send() {
+  public void send(int broadcastType,int msgType,GeneratedMessage message) {
 
     new Thread(new Runnable() {
       @Override public void run() {
         if (channel != null && channel.isActive()) {
           //66793
 
-          CustomerProtocol.FrameGetUserRoomReq.Builder builder =
-              CustomerProtocol.FrameGetUserRoomReq.newBuilder();
-          builder.setUserID(66796);
-          builder.setAppSocketID(0);
-          //builder.setAppSocketID(0);
-
           DataPacket dataPacket = new DataPacket();
-          byte[] content = builder.build().toByteArray();
+          byte[] content = message.toByteArray();
           dataPacket.setLength((char) (content.length + 20));
           dataPacket.setMinorID((byte) 0);
           dataPacket.setMajorID((byte) 0);
-          dataPacket.setBroadcastType(CustomerProtocol.Indexmessage.C2S_UNMASS_DATA_VALUE);
+          dataPacket.setBroadcastType(broadcastType);
           dataPacket.setBroadcastLenght(content.length + 8);
-          dataPacket.setType(CustomerProtocol.Indexmessage.C2S_GETUSERROOMREQ_VALUE);
+          dataPacket.setType(msgType);
           dataPacket.setDataLenght(content.length);
           dataPacket.setContent(content);
           channel.writeAndFlush(dataPacket);
@@ -107,10 +107,16 @@ public class Client {
                   new LengthFieldBasedFrameDecoder(ByteOrder.LITTLE_ENDIAN, MAX_FRAME_LENGTH,
                       LENGTH_FIELD_OFFSET, LENGTH_FIELD_LENGTH, LENGTH_ADJUSTMENT,
                       INITIAL_BYTES_TO_STRIP, true));
-              pipeline.addLast(new ProtobufDecoder());
+              ProtobufDecoder pd = new ProtobufDecoder();
+              addCallbackToHandle(pd);
+              pipeline.addLast(pd);
               pipeline.addLast(new ProtobufEncoder());
             }
           });
+
+      cbApp.option(ChannelOption.TCP_NODELAY, true);
+      cbApp.option(ChannelOption.SO_KEEPALIVE, true);
+      cbApp.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeout.get());
 
       try {
         ChannelFuture channelFuture = cbApp.connect(HOST, PORT);
@@ -135,5 +141,25 @@ public class Client {
       }
     }
     return cbApp;
+  }
+
+  private void addCallbackToHandle(ProtobufDecoder pd){
+
+      pd.addCallback(CustomerProtocol.Indexmessage.S2C_GETUSERROOMREQ_ANSWER_VALUE,
+          (data)->decodeGetUserRoomAnswer(data));
+
+  }
+
+  private void decodeGetUserRoomAnswer(byte[] data) {
+    Log.d(TAG, "获取到GetUserRoomAnswer --------》");
+    //查询用户是否在房间中返回
+    try {
+      CustomerProtocol.FrameGetUserRoomResp resp =
+          CustomerProtocol.FrameGetUserRoomResp.parseFrom(data);
+
+      Log.d(TAG, "decodeGetUserRoomAnswer: " + resp.toString());
+    } catch (InvalidProtocolBufferException e) {
+      e.printStackTrace();
+    }
   }
 }
